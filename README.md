@@ -26,11 +26,11 @@
    pip install -r requirements.txt
    ```
 
-   For GPU inference, install PyTorch with CUDA, e.g.:
-
-   ```bash
-   pip install torch --index-url https://download.pytorch.org/whl/cu121
+   For **GPU inference** (NVIDIA CUDA), run once:
+   ```powershell
+   .\install_gpu.bat
    ```
+   Then run the demo as usual; it will use the GPU automatically. If you see a DLL error (WinError 1114), install the [Visual C++ Redistributable (x64)](https://aka.ms/vc14/vc_redist.x64.exe) and try again, or stay on CPU (don’t run `install_gpu.bat`).
 
 3. **RealSense D435i + SDK**
    - **librealsense2 (SDK):** If the camera works in **RealSense Viewer**, the SDK/driver is already installed. Otherwise, install the [Windows precompiled SDK](https://github.com/realsenseai/librealsense/releases) (download the latest release installer) and follow the [Windows setup guide](https://dev.realsenseai.com/docs/compiling-librealsense-for-windows-guide).

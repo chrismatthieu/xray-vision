@@ -95,10 +95,16 @@ def main():
     args = parse_args()
 
     try:
+        import torch
         from ultralytics import YOLO
     except ImportError:
         print("Install ultralytics: pip install ultralytics", file=sys.stderr)
         sys.exit(1)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Inference device: {device}")
+    if device == "cuda":
+        print(f"  GPU: {torch.cuda.get_device_name(0)}")
 
     width, height = RESOLUTIONS[args.resolution]
     model = YOLO(args.model)
@@ -113,7 +119,7 @@ def main():
 
     try:
         for color, depth_m, intr in frame_iter:
-            results = model.predict(color, conf=args.conf, verbose=False)
+            results = model.predict(color, conf=args.conf, verbose=False, device=device)
             detections_2d = []
             for r in results:
                 if r.boxes is None:
