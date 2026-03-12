@@ -1,0 +1,12 @@
+# X-Ray Vision RealSense Demo – Intel D435i + 2D AI → 3D
+# Python 3.10+ recommended.
+#
+# On Windows, install PyTorch CPU first to avoid WinError 1114 (c10.dll):
+#   pip install torch==2.5.1+cpu torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
+# Then: pip install -r requirements.txt
+
+pyrealsense2>=2.54.0
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+open3d>=0.18.0
