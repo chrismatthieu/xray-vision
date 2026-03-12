@@ -1,8 +1,8 @@
 # X-Ray Vision Object Detection Demo
 
-2D AI object detection (YOLO / RT-DETR) combined with Intel RealSense D435i depth to compute **true 3D positions** and **3D bounding boxes** with an on-screen overlay.
+2D AI object detection (YOLO / RT-DETR) combined with RealSense D435i depth to compute **true 3D positions** and **3D bounding boxes** with an on-screen overlay.
 
-**Hardware:** InnoDisk Apex-P200 (Intel i7, Nvidia Ada GPUs) + Intel RealSense D435i.
+**Hardware:** InnoDisk Apex-P200 (Intel i7, Nvidia Ada GPUs) + RealSense D435i.
 
 ## What it does
 
