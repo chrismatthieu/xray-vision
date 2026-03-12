@@ -80,6 +80,11 @@ def _obb_corners_from_points(points: np.ndarray) -> Optional[np.ndarray]:
         return None
 
 
+# Depth band (meters) around object: only points within this range of median Z are used for the 3D box.
+# Keeps the OBB tight to the object and avoids including background (wall) points in the bbox.
+DEPTH_BAND_FOR_OBB = 0.35
+
+
 def process_detections(
     depth_aligned: np.ndarray,
     intrinsics: rs.intrinsics,
@@ -87,6 +92,7 @@ def process_detections(
 ) -> List[Detection3D]:
     """
     For each 2D detection (label, confidence, x1,y1,x2,y2), compute 3D centroid, distance, and OBB corners.
+    OBB is fit only to points within a depth band of the object so the box doesn't stretch to the background.
     """
     out: List[Detection3D] = []
     for label, conf, (x1, y1, x2, y2) in detections_2d:
@@ -98,7 +104,11 @@ def process_detections(
         else:
             centroid = tuple(np.median(points_3d, axis=0).tolist())
             distance = float(centroid[2])  # Z forward
-            obb_corners = _obb_corners_from_points(points_3d)
+            # Use only points near the object's depth so the 3D box doesn't include the background
+            z_median = centroid[2]
+            in_band = np.abs(points_3d[:, 2] - z_median) <= DEPTH_BAND_FOR_OBB
+            points_for_obb = points_3d[in_band]
+            obb_corners = _obb_corners_from_points(points_for_obb) if points_for_obb.shape[0] >= 4 else None
 
         out.append(Detection3D(
             label=label,
