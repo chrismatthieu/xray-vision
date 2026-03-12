@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 
 import cv2
 import numpy as np
@@ -26,6 +27,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="X-Ray Vision: 2D detection + depth → 3D overlay")
     p.add_argument("--model", default="yolo11n.pt", help="Model: yolo11n.pt, rtdetr-l.pt, etc.")
     p.add_argument("--resolution", default="720p", choices=list(RESOLUTIONS.keys()), help="Color/depth resolution")
+    p.add_argument("--imgsz", type=int, default=480, help="YOLO inference size (smaller = faster, default 480)")
     p.add_argument("--conf", type=float, default=0.5, help="Detection confidence threshold")
     p.add_argument("--no-wireframe", action="store_true", help="Disable 3D wireframe boxes")
     p.add_argument("--no-2d-boxes", action="store_true", help="Disable 2D bounding boxes")
@@ -34,6 +36,7 @@ def parse_args():
 
 
 def _run_with_realsense(args, width, height, model):
+    """Sync capture: one frame at a time (used for --video or when async disabled)."""
     import pyrealsense2 as rs
     pipe, cfg = pipeline_config(width, height)
     try:
@@ -58,6 +61,52 @@ def _run_with_realsense(args, width, height, model):
             yield color, depth_m, intr
     finally:
         pipe.stop()
+
+
+def _capture_thread(pipe, align, stop_event, latest_holder):
+    """Background thread: keep fetching the latest frame so inference doesn't wait on capture."""
+    while not stop_event.is_set():
+        color, depth_m, intr = get_frames(pipe, align)
+        if color is not None and depth_m is not None and intr is not None:
+            latest_holder[:] = [(color.copy(), depth_m.copy(), intr)]
+
+
+def _run_with_realsense_async(args, width, height, model):
+    """Async capture: camera runs in a thread, yield latest frame so GPU and camera work in parallel."""
+    import threading
+    import pyrealsense2 as rs
+    pipe, cfg = pipeline_config(width, height)
+    try:
+        profile = start_pipeline(pipe, cfg)
+    except RuntimeError as e:
+        if "No device connected" in str(e) or "no device" in str(e).lower():
+            print("RealSense: no camera detected.", file=sys.stderr)
+            print("  - Plug in the Intel RealSense D435i (USB 3.0).", file=sys.stderr)
+            print("  - Try another USB port or cable.", file=sys.stderr)
+            print("  - Install Intel RealSense SDK 2.0 if needed.", file=sys.stderr)
+            print("  - Or run with a video file: run_demo.py --video path/to/file.mp4", file=sys.stderr)
+        raise
+    color_profile = get_color_profile(profile)
+    intrinsics = color_profile.get_intrinsics()
+    align = create_align()
+
+    stop_event = threading.Event()
+    latest_holder = []  # [ (color, depth_m, intr) ] or empty
+    t = threading.Thread(target=_capture_thread, args=(pipe, align, stop_event, latest_holder), daemon=True)
+    t.start()
+
+    try:
+        while True:
+            if latest_holder:
+                color, depth_m, intr = latest_holder[0]
+                yield color, depth_m, intr
+            else:
+                import time
+                time.sleep(0.001)
+    finally:
+        stop_event.set()
+        pipe.stop()
+        t.join(timeout=1.0)
 
 
 def _run_with_video(args, video_path, model):
@@ -109,17 +158,31 @@ def main():
     width, height = RESOLUTIONS[args.resolution]
     model = YOLO(args.model)
 
+    use_half = device == "cuda"  # FP16 on GPU for speed
+    if use_half:
+        print("FP16 inference: on")
+
     if args.video:
         print("Using video file (synthetic depth). Press Q to quit.")
         frame_iter = _run_with_video(args, args.video, model)
     else:
         print("Starting X-Ray Vision demo. Press Q to quit.")
         print("Resolution:", width, "x", height)
-        frame_iter = _run_with_realsense(args, width, height, model)
+        frame_iter = _run_with_realsense_async(args, width, height, model)
 
+    t0 = time.perf_counter()
+    frame_times = []
     try:
         for color, depth_m, intr in frame_iter:
-            results = model.predict(color, conf=args.conf, verbose=False, device=device)
+            t_start = time.perf_counter()
+            results = model.predict(
+                color,
+                conf=args.conf,
+                verbose=False,
+                device=device,
+                imgsz=args.imgsz,
+                half=use_half,
+            )
             detections_2d = []
             for r in results:
                 if r.boxes is None:
@@ -140,6 +203,13 @@ def main():
                 draw_2d_boxes=not args.no_2d_boxes,
                 draw_wireframe_3d=not args.no_wireframe,
             )
+
+            elapsed = time.perf_counter() - t_start
+            frame_times.append(elapsed)
+            if len(frame_times) > 30:
+                frame_times.pop(0)
+            fps = 1.0 / (sum(frame_times) / len(frame_times)) if frame_times else 0
+            cv2.putText(color, f"FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
             cv2.imshow("X-Ray Vision", color)
             if cv2.waitKey(1) & 0xFF == ord("q"):

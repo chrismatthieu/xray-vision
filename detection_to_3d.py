@@ -39,6 +39,11 @@ def _deproject_roi(
     if ys.size == 0:
         return np.zeros((0, 3))
 
+    # Subsample if too many pixels to keep per-frame cost down
+    max_pixels = 1500
+    if ys.size > max_pixels:
+        step = max(1, ys.size // max_pixels)
+        ys, xs = ys[::step], xs[::step]
     depths = roi[ys, xs]
     xs_abs = xs + x1
     ys_abs = ys + y1
@@ -81,8 +86,9 @@ def _obb_corners_from_points(points: np.ndarray) -> Optional[np.ndarray]:
 
 
 # Depth band (meters) around object: only points within this range of median Z are used for the 3D box.
-# Keeps the OBB tight to the object and avoids including background (wall) points in the bbox.
 DEPTH_BAND_FOR_OBB = 0.35
+# Max points used for OBB fitting (subsample if more) to keep frame rate high.
+MAX_POINTS_FOR_OBB = 400
 
 
 def process_detections(
@@ -108,6 +114,10 @@ def process_detections(
             z_median = centroid[2]
             in_band = np.abs(points_3d[:, 2] - z_median) <= DEPTH_BAND_FOR_OBB
             points_for_obb = points_3d[in_band]
+            # Subsample for speed when there are many points
+            if points_for_obb.shape[0] > MAX_POINTS_FOR_OBB:
+                step = max(1, points_for_obb.shape[0] // MAX_POINTS_FOR_OBB)
+                points_for_obb = points_for_obb[::step]
             obb_corners = _obb_corners_from_points(points_for_obb) if points_for_obb.shape[0] >= 4 else None
 
         out.append(Detection3D(
